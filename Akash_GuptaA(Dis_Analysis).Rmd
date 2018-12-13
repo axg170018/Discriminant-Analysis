@@ -1,0 +1,114 @@
+---
+title: "HOMEWORK 3"
+author: "Akash Gupta"
+date: "16 November 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+#Importing the libraries
+```{r}
+library(MASS)
+library(tidyverse)
+library(gains)
+library(leaps)
+library(caret)
+library(data.table)
+library(PreProcess)
+```
+
+#Extracting the date files
+```{r}
+spam.df <-read.table("https://archive.ics.uci.edu/ml/machine-learning-databases/spambase/spambase.data", header = FALSE, sep =",")
+
+
+#we can know  each column type through this
+sapply(spam.df[1, ], class)
+
+# for normalizing the data we run this
+norm.values  <- preProcess(spam.df[,-58], method =  c("center", "scale"))
+spam.norm.values.df <- predict(norm.values, spam.df)
+
+#Giving names to the columns
+names(spam.norm.values.df) <- c("word_freq_make","word_freq_address","word_freq_all","word_freq_3d","word_freq_our","word_freq_over","word_freq_remove","word_freq_internet","word_freq_order","word_freq_mail","word_freq_receive","word_freq_will","word_freq_people","word_freq_report","word_freq_addresses","word_freq_free","word_freq_business","word_freq_email","word_freq_you","word_freq_credit","word_freq_your","word_freq_font","word_freq_000","word_freq_money","word_freq_hp","word_freq_hpl","word_freq_george","word_freq_650","word_freq_lab","word_freq_labs","word_freq_telnet","word_freq_857","word_freq_data","word_freq_415","word_freq_85","word_freq_technology","word_freq_1999","word_freq_parts","word_freq_pm","word_freq_direct","word_freq_cs","word_freq_meeting","word_freq_original","word_freq_project","word_freq_re","word_freq_edu","word_freq_table","word_freq_conference","char_freq_;","char_freq_(","char_freq_[","char_freq_exclamation","char_freq_dollar","char_freq_#","capital_run_length_average","capital_run_length_longest","capital_run_length_total","classifier_actual")
+ldaspam <- lda(classifier_actual~.,data=spam.norm.values.df)
+ldaspam$means
+
+View(spam.norm.values.df)
+```
+
+#Identifying the top 10 predictors for which the difference between the spam-class average and nonspam class average is highest
+```{r,ECHO=TRUE}
+ldaspamMeans.df <- data.frame(ldaspam$means)
+
+# creating an empty dataframe so that we can supply it with values 
+new.df <- data.frame()
+for(i in 1:ncol(ldaspamMeans.df)) new.df[1,i] =abs(ldaspamMeans.df[2,i])-abs(ldaspamMeans.df[1,i])
+names(new.df) <- c("word_freq_make","word_freq_address","word_freq_all","word_freq_3d","word_freq_our",
+                   "word_freq_over","word_freq_remove","word_freq_internet","word_freq_order","word_freq_mail",
+                   "word_freq_receive","word_freq_will","word_freq_people","word_freq_report",
+                   "word_freq_addresses","word_freq_free","word_freq_business","word_freq_email",
+                   "word_freq_you","word_freq_credit","word_freq_your","word_freq_font","word_freq_000",
+                   "word_freq_money","word_freq_hp","word_freq_hpl","word_freq_george","word_freq_650",
+                   "word_freq_lab","word_freq_labs","word_freq_telnet","word_freq_857","word_freq_data",
+                   "word_freq_415","word_freq_85","word_freq_technology","word_freq_1999","word_freq_parts",
+                   "word_freq_pm","word_freq_direct","word_freq_cs","word_freq_meeting","word_freq_original",
+                   "word_freq_project","word_freq_re","word_freq_edu","word_freq_table","word_freq_conference",
+                   "char_freq_;","char_freq_(","char_freq_[","char_freq_exclamation","char_freq_dollar",
+                   "char_freq_#","capital_run_length_average","capital_run_length_longest","capital_run_length_total")
+new.df<- sort(new.df,decreasing = TRUE)
+
+# top 10 variable with highest difference
+names(new.df[,1:10])
+```
+
+# Now we Split the  dataset into training (80%) and validation dataset (20%)
+```{r Linear Discriminant Analysis, echo=TRUE}
+set.seed(123)
+training.index <- createDataPartition(spam.norm.values.df$classifier_actual, p = 0.8, list = FALSE)
+spam.train.df <- spam.norm.values.df[training.index, ]
+spam.valid.df <- spam.norm.values.df[-training.index, ]
+
+# Running the Linear Discriminant Analsys on the training data
+ldaspam_train <- lda(classifier_actual ~ word_freq_your + word_freq_000 + word_freq_remove + char_freq_dollar +
+                  word_freq_you + word_freq_free + word_freq_business + word_freq_hp + capital_run_length_total + 
+                    word_freq_our,data = spam.train.df)
+
+ldaspam_train
+```
+
+# confusion matrix (Here we can generate a confusion matrix)
+```{r,Confusion Matrix}
+pred.valid <- predict(ldaspam_train, spam.valid.df)
+table(pred.valid$class,spam.valid.df$classifier_actual)
+
+# in order to find the accuracy percentage
+mean(pred.valid$class == spam.valid.df$classifier_actual)
+```
+The accuracy of the matrix is 84%(approx).
+
+```{r, echo=TRUE}
+library(gains)
+gain <- gains(as.numeric(spam.valid.df$classifier_actual), pred.valid$x[,1], groups = 10)
+
+### now we Plot the Lift Chart
+spam <- as.numeric(spam.valid.df$classifier_actual)
+plot(c(0,gain$cume.pct.of.total*sum(spam))~c(0,gain$cume.obs), 
+     xlab = "# cases", ylab = "Cumulative", main = "", type = "l")
+lines(c(0,sum(spam))~c(0, dim(spam.valid.df)[1]), lty = 5)
+# plot.new()
+
+#now we can plot the  Decile-wise chart
+heights <- gain$mean.resp/mean(spam.valid.df$classifier_actual)
+midpoints <- barplot(heights, names.arg = gain$depth,  ylim = c(0,10), col = "red",
+                     xlab = "Percentile", ylab = "Mean Response",
+                     main = "Decile-wise Lift Chart")
+### adding  labels to columns
+text(midpoints, heights+1, labels=round(heights, 1), cex = 0.7)
+```
+
+
+
+
